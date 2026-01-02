@@ -1,3 +1,4 @@
+
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -5,193 +6,173 @@ const cors = require('cors');
 
 const app = express();
 
-// Разрешаем CORS, чтобы ваш фронтенд и консоль Тильды могли делать запросы
+// Лимиты увеличены для передачи тяжелых данных дизайна
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// 1. Проверка работоспособности (для GET запроса в браузере)
+// 1. Главная страница для проверки (GET /)
 app.get('/', (req, res) => {
     res.send(`
-        <div style="font-family:sans-serif; text-align:center; padding-top:100px;">
-            <h1 style="color:#fa8669;">STORM GHOST Proxy Online</h1>
-            <p style="color:#666;">Сервер готов к работе. Используйте POST /tilda для захвата блоков.</p>
-            <div style="display:inline-block; padding:10px 20px; background:#eee; border-radius:5px; font-weight:bold;">Статус: OK</div>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align:center; padding: 100px 20px; background: #0f172a; min-height: 100vh; color: white;">
+            <div style="background: #1e293b; display: inline-block; padding: 40px; rounded-radius: 20px; border: 1px solid #334155; border-radius: 30px; shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+                <h1 style="color:#fa8669; font-size: 40px; margin-bottom: 10px; letter-spacing: -1px;">STORM GHOST PROXY</h1>
+                <p style="color:#94a3b8; font-size: 16px;">Статус системы: <span style="color: #22c55e; font-weight: bold;">ONLINE</span></p>
+                <div style="margin-top: 30px; font-size: 12px; color: #64748b; text-transform: uppercase; tracking: 2px;">Ready for POST requests at /tilda</div>
+            </div>
         </div>
     `);
 });
 
-// Функция нормализации (фишка конкурента для идеальной сетки)
-const normalizeElement = (el) => {
-    // Устанавливаем стандартные шрифты и стили
-    el['fontfamily'] = el['fontfamily'] || "'FuturaPT',Arial,sans-serif";
-    
-    // Преобразование координат в Grid Container (calc)
-    // Это позволяет блоку выглядеть одинаково на всех экранах
-    if (el.left && !String(el.left).includes('calc')) {
-        const posX = parseInt(el.left);
-        if (!isNaN(posX)) {
-            el.left = `calc(50% - 600px + ${posX}px)`;
-        }
+// Утилита для нормализации элементов (как у топовых конкурентов)
+const normalizeElement = (el, baseUrl) => {
+    // 1. Исправление путей к картинкам
+    if (el.img && !el.img.startsWith('http')) {
+        try {
+            const absolute = new URL(el.img, baseUrl).href;
+            el.img = absolute;
+        } catch (e) {}
     }
-    
-    // Принудительные настройки для чистоты кода
+
+    // 2. Центрирование по сетке (Grid Container Fix)
+    // Если координата числовая, оборачиваем в calc для адаптивности
+    if (el.left && !el.left.includes('calc') && !el.left.includes('%')) {
+        const val = parseInt(el.left);
+        if (!isNaN(val)) el.left = `calc(50% - 600px + ${val}px)`;
+    }
+
+    // 3. Дефолтные значения для стабильности импорта
+    el['fontfamily'] = el['fontfamily'] || "Arial,sans-serif";
     el['bordercolor'] = el['bordercolor'] || "transparent";
-    el['borderstyle'] = el['borderstyle'] || "solid";
     
     return el;
 };
 
-// 2. Основной обработчик захвата блоков
+// 2. Эндпоинт обработки (POST /tilda)
 app.post('/tilda', async (req, res) => {
     const { url, blockIds } = req.body;
     
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
     try {
-        console.log(`[LOG] Processing URL: ${url}`);
+        console.log(`[REQ] Incoming request for: ${url}`);
         
-        // Загружаем HTML страницы-донора
         const response = await axios.get(url, {
             headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             },
-            timeout: 10000
+            timeout: 15000
         });
 
         const $ = cheerio.load(response.data);
         const designs = [];
 
-        // Ищем Zero-блоки (тип 396)
+        // Ищем только Zero Blocks (data-record-type="396")
         $('.r[data-record-type="396"]').each((i, rec) => {
             const currentId = $(rec).attr('id');
             
-            // Если указаны конкретные ID, фильтруем. Если нет - берем все.
-            if (blockIds && blockIds.length > 0 && !blockIds.includes(currentId)) {
-                return;
-            }
+            // Если пришел список ID, фильтруем. Иначе берем все.
+            if (blockIds && blockIds.length > 0 && !blockIds.includes(currentId)) return;
 
             const artboard = $(rec).find('.t396__artboard');
             if (!artboard.length) return;
 
-            // Собираем данные артборда (высота, фон и т.д.)
             const design = { elements: {} };
-            const attrs = artboard[0].attribs;
-            Object.keys(attrs).forEach(attr => {
+            
+            // Сбор данных артборда
+            Object.keys(artboard[0].attribs).forEach(attr => {
                 if (attr.startsWith('data-artboard-')) {
                     const key = attr.replace('data-artboard-', '');
-                    design[key] = attrs[attr];
+                    design[key] = artboard[0].attribs[attr];
                 }
             });
 
-            // Собираем элементы внутри блока
+            // Сбор всех элементов (текст, шейпы, кнопки, картинки)
             $(rec).find('.tn-elem').each((j, el) => {
                 const eid = $(el).attr('data-elem-id');
-                const elementData = { 
-                    id: eid, 
-                    type: $(el).attr('data-elem-type') || 'text' 
-                };
+                const elementData = { id: eid, type: $(el).attr('data-elem-type') || 'text' };
 
-                // Вытаскиваем все data-field-* атрибуты
+                // Извлекаем все параметры Tilda
                 Object.keys(el.attribs).forEach(attr => {
                     if (attr.startsWith('data-field-')) {
                         const key = attr.replace('data-field-', '').replace('-value', '');
                         elementData[key] = el.attribs[attr];
                     }
+                    if (attr.startsWith('data-animate-')) {
+                        const key = attr.replace('data-animate-', '');
+                        elementData['anim-' + key] = el.attribs[attr];
+                    }
                 });
 
-                // Контент: Текст (HTML) или Картинка
+                // Контент
                 const atom = $(el).find('.tn-atom');
                 if (elementData.type === 'text') {
                     elementData.text = atom.html();
                 } else {
-                    const img = $(el).find('img').attr('src') || atom.attr('data-original') || atom.css('background-image');
-                    if (img) elementData.img = img.replace('url(', '').replace(')', '').replace(/["']/g, "");
+                    const foundImg = $(el).find('img').attr('src') || atom.attr('data-original') || atom.css('background-image');
+                    if (foundImg) {
+                        elementData.img = foundImg.replace('url(', '').replace(')', '').replace(/["']/g, "");
+                    }
                 }
 
-                design.elements[eid] = normalizeElement(elementData);
+                design.elements[eid] = normalizeElement(elementData, url);
             });
             
             designs.push(design);
         });
 
         if (designs.length === 0) {
-            return res.status(404).json({ error: 'Zero blocks not found on this page' });
+            return res.status(404).json({ error: 'No zero blocks found' });
         }
 
-        // 3. Генерируем "Тяжелую логику" (Inject Logic)
-        // Этот код выполнится в браузере пользователя
-        const injectionLogic = `
+        // 3. Генерация финального скрипта инъекции
+        // Этот код - сердце системы. Он выполняется в консоли Тильды.
+        const injectionScript = `
 (async function() {
     const designs = ${JSON.stringify(designs)};
-    const pageId = window.pageid || window.tilda_page_id || document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
-    const token = window.token || document.querySelector('input[name="token"]')?.value;
+    const pId = window.pageid || document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
+    const tok = window.token || document.querySelector('input[name="token"]')?.value;
 
-    if (!pageId || !token) {
-        alert("ОШИБКА: Запустите этот код на странице редактирования Tilda (там, где список всех блоков)");
+    if (!pId || !tok) {
+        alert("ОШИБКА: Откройте страницу редактирования (список блоков) в Tilda!");
         return;
     }
 
-    const tildaApi = async (params) => fetch('/page/submit/', {
+    const api = async (p) => fetch('/page/submit/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-        body: new URLSearchParams(params)
+        body: new URLSearchParams(p)
     }).then(r => r.json());
 
-    console.log("%c STORM GHOST: Запуск импорта " + designs.length + " блоков...", "color:#fff;background:#fa8669;padding:5px 15px;border-radius:5px;font-weight:bold;");
+    console.log("%c STORM GHOST: Подготовка к импорту " + designs.length + " блоков...", "color:#fff;background:#fa8669;padding:8px 20px;border-radius:10px;font-weight:bold;");
 
     for (let i = 0; i < designs.length; i++) {
-        const design = designs[i];
-        console.log("%c Загрузка блока " + (i+1) + "/" + designs.length + "...", "color:#fa8669;");
+        const d = designs[i];
+        console.log("%c -> Копирование блока " + (i+1) + "...", "color:#fa8669;");
         
-        // 1. Создаем пустой Zero Block
-        const addRes = await tildaApi({ 
-            comm: 'addblock', 
-            pageid: pageId, 
-            type: '396', 
-            token: token 
-        });
-
-        if (addRes && addRes.recordid) {
-            const newRecId = addRes.recordid;
-            
-            // Подготавливаем данные дизайна для сохранения
-            design.artboard_id = newRecId;
-            design.recid = newRecId;
-            design.pageid = pageId;
-
-            // 2. Сохраняем данные в созданный блок
-            await tildaApi({
-                comm: 'save',
-                pageid: pageId,
-                recordid: newRecId,
-                token: token,
-                data: JSON.stringify(design)
-            });
+        const add = await api({ comm: 'addblock', pageid: pId, type: '396', token: tok });
+        if (add && add.recordid) {
+            d.artboard_id = add.recordid;
+            d.recid = add.recordid;
+            d.pageid = pId;
+            await api({ comm: 'save', pageid: pId, recordid: add.recordid, token: tok, data: JSON.stringify(d) });
         }
     }
 
-    console.log("%c STORM GHOST: Успешно завершено! Перезагрузка...", "color:#fff;background:#22c55e;padding:5px 15px;border-radius:5px;font-weight:bold;");
-    setTimeout(() => window.location.reload(), 1000);
+    console.log("%c ГОТОВО! Сейчас страница обновится...", "color:#fff;background:#22c55e;padding:8px 20px;border-radius:10px;");
+    setTimeout(() => window.location.reload(), 1500);
 })();`.trim();
 
-        // Упаковываем всю логику в Base64 (как у конкурента)
-        const encodedSrc = Buffer.from(unescape(encodeURIComponent(injectionLogic))).toString('base64');
+        // Кодируем в Base64 для передачи через "Short Loader"
+        const finalBase64 = Buffer.from(unescape(encodeURIComponent(injectionScript))).toString('base64');
         
-        console.log(`[SUCCESS] Generated payload for ${designs.length} blocks`);
-        res.json({ src: encodedSrc });
+        res.json({ src: finalBase64 });
 
     } catch (err) {
-        console.error(`[ERROR] ${err.message}`);
-        res.status(500).json({ error: 'Internal Server Error', details: err.message });
+        console.error(`[ERR] ${err.message}`);
+        res.status(500).json({ error: 'Server error', msg: err.message });
     }
 });
 
-// Запуск сервера
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`----------------------------------------`);
-    console.log(`STORM GHOST Proxy is running on port ${PORT}`);
-    console.log(`Endpoint: POST /tilda`);
-    console.log(`----------------------------------------`);
-});
+app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
