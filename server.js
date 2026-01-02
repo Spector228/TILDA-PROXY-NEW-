@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/', (req, res) => {
-    res.send('STORM GHOST ACTIVE');
+    res.send('STORM GHOST V33 ACTIVE');
 });
 
 app.post('/scan', async (req, res) => {
@@ -71,73 +71,59 @@ app.post('/tilda', async (req, res) => {
             designs.push(design);
         });
 
-        // ФИНАЛЬНЫЙ ИНЪЕКТОР (БЕЗОШИБОЧНЫЙ ПОИСК)
+        // ФИНАЛЬНЫЙ ИНЪЕКТОР (АНАЛОГ КОНКУРЕНТА)
         const clientCode = `
 (async function() {
-    var designs = ${JSON.stringify(designs)};
+    var log = (m) => console.log("%c" + m, "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px;font-weight:bold;");
     
-    function getSession() {
-        var p = null, t = null;
-        var wins = [window, window.parent, window.top];
-        
-        for (var w of wins) {
+    function findVal(name) {
+        var targets = [window, window.parent, window.top];
+        for (var t of targets) {
             try {
-                p = p || w.pageid || (w.all_records_data ? w.all_records_data.pageid : null);
-                t = t || w.token || w.formstoken || w.td_token || (w.all_records_data ? w.all_records_data.token : null);
+                if (t[name]) return t[name];
+                if (t.all_records_data && t.all_records_data[name]) return t.all_records_data[name];
             } catch(e) {}
         }
-        
-        if (!p) {
-            var urlP = new URLSearchParams(window.location.search).get('pageid') || new URLSearchParams(window.top.location.search).get('pageid');
-            p = urlP;
-        }
-        
-        if (!t) {
-            t = document.querySelector('input[name="token"]')?.value || document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
-        }
-        
-        return { pageid: p, token: t };
+        return null;
     }
 
-    var sess = getSession();
-    var log = (m) => console.log("%c" + m, "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px;font-family:sans-serif;font-weight:bold;");
+    var pId = findVal('pageid') || (new URLSearchParams(window.location.search)).get('pageid') || document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
+    var tok = findVal('token') || findVal('formstoken') || findVal('td_token') || document.querySelector('input[name="token"]')?.value || document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
 
-    if (!sess.pageid || !sess.token) {
-        log("КРИТИЧЕСКАЯ ОШИБКА: ДАННЫЕ TILDA НЕ НАЙДЕНЫ");
-        alert("Ошибка: Сессия не найдена. Убедитесь, что вы находитесь на странице редактирования (список блоков) и попробуйте еще раз.");
+    if (!pId || !tok) {
+        log("ОШИБКА: СЕССИЯ НЕ НАЙДЕНА");
+        alert("Ошибка: Сессия не найдена. Убедитесь, что вы на странице списка блоков вашей Тильды (не внутри Zero Block).");
         return;
     }
 
-    log("STORM GHOST: Начинаю импорт " + designs.length + " блоков...");
+    log("STORM GHOST: Копирование " + designs.length + " блоков...");
 
     for (var i = 0; i < designs.length; i++) {
-        var d = designs[i];
         try {
-            var body = "comm=addblock&pageid=" + sess.pageid + "&type=396&token=" + sess.token;
-            var res = await fetch('/page/submit/', {
+            var addRes = await fetch('/page/submit/', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: body
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: "comm=addblock&pageid=" + pId + "&type=396&token=" + tok
             }).then(r => r.json());
 
-            if (res && res.recordid) {
-                d.artboard_id = res.recordid;
-                d.recid = res.recordid;
-                d.pageid = sess.pageid;
+            if (addRes && addRes.recordid) {
+                var d = designs[i];
+                d.artboard_id = addRes.recordid;
+                d.recid = addRes.recordid;
+                d.pageid = pId;
                 
-                var saveBody = "comm=save&pageid=" + sess.pageid + "&recordid=" + res.recordid + "&token=" + sess.token + "&data=" + encodeURIComponent(JSON.stringify(d));
                 await fetch('/page/submit/', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: saveBody
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: "comm=save&pageid=" + pId + "&recordid=" + addRes.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(d))
                 });
-                console.log("Ghost: [" + (i+1) + "/" + designs.length + "] Блок " + res.recordid + " готов.");
+                console.log("Ghost: Блок " + (i+1) + " [" + addRes.recordid + "] успешно скопирован.");
             }
-        } catch (e) { console.error("Ошибка Ghost:", e); }
+        } catch (e) { console.error("Ghost Error:", e); }
     }
     
-    log("ИМПОРТ ЗАВЕРШЕН!");
-    setTimeout(() => { window.top.location.reload(); }, 500);
+    log("ГОТОВО! ПЕРЕЗАГРУЗКА...");
+    setTimeout(() => { window.top.location.reload(); }, 800);
 })();`.trim();
 
         const b64 = Buffer.from(clientCode, 'utf-8').toString('base64');
@@ -148,4 +134,4 @@ app.post('/tilda', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Server running on port ' + PORT));
+app.listen(PORT, () => console.log('Server Ghost V33 running...'));
