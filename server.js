@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/', (req, res) => {
-    res.send('STORM GHOST V33.6 ACTIVE');
+    res.send('STORM GHOST ACTIVE');
 });
 
 app.post('/scan', async (req, res) => {
@@ -71,31 +71,37 @@ app.post('/tilda', async (req, res) => {
             designs.push(design);
         });
 
-        // ЭТОТ КОД БУДЕТ ВЫПОЛНЕН В БРАУЗЕРЕ (Инъектор)
+        // ИНЪЕКТОР (То, что выполняется в консоли)
+        // Мы ищем токен везде: и в текущем окне, и в родителе
         const clientCode = `
 (async function() {
     var designs = ${JSON.stringify(designs)};
-    var w = window;
-    if (typeof w.token === "undefined" && w.parent) w = w.parent;
     
-    var pId = w.pageid || (new URLSearchParams(w.location.search)).get('pageid');
-    var tok = w.token || w.td_token || document.querySelector('input[name="token"]')?.value;
+    function getVal(name) {
+        if (window[name]) return window[name];
+        if (window.parent && window.parent[name]) return window.parent[name];
+        if (window.td_token) return window.td_token;
+        if (window.parent && window.parent.td_token) return window.parent.td_token;
+        return null;
+    }
+
+    var pId = getVal('pageid') || (new URLSearchParams(window.location.search)).get('pageid') || (window.parent ? (new URLSearchParams(window.parent.location.search)).get('pageid') : null);
+    var tok = getVal('formstoken') || getVal('token') || document.querySelector('input[name="token"]')?.value;
 
     if (!pId || !tok) {
-        alert("Ошибка: Сессия не найдена. Попробуйте нажать на любой другой блок в списке, затем снова откройте консоль.");
+        alert("Ошибка: Сессия не найдена. Пожалуйста, закройте Zero Block и запустите код на странице со списком всех блоков.");
         return;
     }
 
-    console.log("STORM GHOST: Запуск копирования...");
+    console.log("%cSTORM GHOST%c Начинаю копирование " + designs.length + " блоков...", "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px", "");
 
     for (var i = 0; i < designs.length; i++) {
         var d = designs[i];
         try {
-            var bodyAdd = "comm=addblock&pageid=" + pId + "&type=396&token=" + tok;
             var res = await fetch('/page/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: bodyAdd
+                body: "comm=addblock&pageid=" + pId + "&type=396&token=" + tok
             }).then(r => r.json());
 
             if (res && res.recordid) {
@@ -103,22 +109,21 @@ app.post('/tilda', async (req, res) => {
                 d.recid = res.recordid;
                 d.pageid = pId;
                 
-                var bodySave = "comm=save&pageid=" + pId + "&recordid=" + res.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(d));
                 await fetch('/page/submit/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: bodySave
+                    body: "comm=save&pageid=" + pId + "&recordid=" + res.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(d))
                 });
-                console.log("Блок " + (i+1) + " готов.");
+                console.log("Блок " + (i+1) + " из " + designs.length + " добавлен успешно.");
             }
-        } catch (err) { console.error("Ghost Error:", err); }
+        } catch (e) { console.error("Ошибка при копировании блока:", e); }
     }
     
-    alert("Успешно! " + designs.length + " блоков добавлено.");
-    w.location.reload();
+    alert("Готово! Все блоки скопированы. Страница будет обновлена.");
+    if (window.parent && window.parent.location) window.parent.location.reload();
+    else window.location.reload();
 })();`.trim();
 
-        // Отправляем в том же формате, что и конкурент
         const b64 = Buffer.from(clientCode, 'utf-8').toString('base64');
         res.json({ src: b64 });
     } catch (err) {
