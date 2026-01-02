@@ -10,21 +10,21 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/', (req, res) => {
-    res.send('STORM GHOST SERVER ACTIVE');
+    res.send('STORM GHOST V33.6 ACTIVE');
 });
 
 app.post('/scan', async (req, res) => {
     const { url } = req.body;
     try {
         const response = await axios.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36' },
             timeout: 10000
         });
         const $ = cheerio.load(response.data);
         const blocks = [];
         $('.r[data-record-type="396"]').each((_, rec) => {
             const id = $(rec).attr('id');
-            const preview = $(rec).find('.tn-atom').first().text().trim().substring(0, 50) || "Zero Block";
+            const preview = $(rec).find('.tn-atom').first().text().trim().substring(0, 50) || "Zero Block Content";
             blocks.push({ id, description: preview, type: '396' });
         });
         res.json({ success: true, blocks });
@@ -37,7 +37,7 @@ app.post('/tilda', async (req, res) => {
     const { url, blockIds } = req.body;
     try {
         const response = await axios.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36' }
         });
         const $ = cheerio.load(response.data);
         const designs = [];
@@ -71,57 +71,60 @@ app.post('/tilda', async (req, res) => {
             designs.push(design);
         });
 
-        // ПРЯМАЯ ЛОГИКА КОНКУРЕНТА (без лишних проверок)
-        const injectScript = `
+        // ЭТОТ КОД БУДЕТ ВЫПОЛНЕН В БРАУЗЕРЕ (Инъектор)
+        const clientCode = `
 (async function() {
-    var ds = ${JSON.stringify(designs)};
-    var win = window.parent !== window ? window.parent : window;
+    var designs = ${JSON.stringify(designs)};
+    var w = window;
+    if (typeof w.token === "undefined" && w.parent) w = w.parent;
     
-    // Получаем токены и ID как это делает конкурент
-    var pId = win.pageid || win.td_pageid || (new URLSearchParams(win.location.search)).get('pageid');
-    var tok = win.token || win.td_token || win.document.querySelector('input[name="token"]')?.value;
+    var pId = w.pageid || (new URLSearchParams(w.location.search)).get('pageid');
+    var tok = w.token || w.td_token || document.querySelector('input[name="token"]')?.value;
 
     if (!pId || !tok) {
-        alert("Ошибка: Не найден token или pageid. Откройте консоль в общем списке блоков страницы.");
+        alert("Ошибка: Сессия не найдена. Попробуйте нажать на любой другой блок в списке, затем снова откройте консоль.");
         return;
     }
 
-    console.log("%cSTORM GHOST%c Начинаю копирование " + ds.length + " блоков...", "background:#fa8669;color:#fff;padding:5px;", "");
+    console.log("STORM GHOST: Запуск копирования...");
 
-    for (var i = 0; i < ds.length; i++) {
-        var data = ds[i];
+    for (var i = 0; i < designs.length; i++) {
+        var d = designs[i];
         try {
+            var bodyAdd = "comm=addblock&pageid=" + pId + "&type=396&token=" + tok;
             var res = await fetch('/page/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: "comm=addblock&pageid=" + pId + "&type=396&token=" + tok
+                body: bodyAdd
             }).then(r => r.json());
 
             if (res && res.recordid) {
-                data.artboard_id = res.recordid;
-                data.recid = res.recordid;
-                data.pageid = pId;
+                d.artboard_id = res.recordid;
+                d.recid = res.recordid;
+                d.pageid = pId;
                 
+                var bodySave = "comm=save&pageid=" + pId + "&recordid=" + res.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(d));
                 await fetch('/page/submit/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: "comm=save&pageid=" + pId + "&recordid=" + res.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(data))
+                    body: bodySave
                 });
-                console.log("Блок " + (i+1) + " из " + ds.length + " готов.");
+                console.log("Блок " + (i+1) + " готов.");
             }
-        } catch (e) { console.error(e); }
+        } catch (err) { console.error("Ghost Error:", err); }
     }
     
-    alert("Готово! Страница будет перезагружена.");
-    win.location.reload();
+    alert("Успешно! " + designs.length + " блоков добавлено.");
+    w.location.reload();
 })();`.trim();
 
-        const src = Buffer.from(injectScript, 'utf-8').toString('base64');
-        res.json({ src });
+        // Отправляем в том же формате, что и конкурент
+        const b64 = Buffer.from(clientCode, 'utf-8').toString('base64');
+        res.json({ src: b64 });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Ghost Node on ${PORT}`));
+app.listen(PORT, () => console.log('Server running...'));
