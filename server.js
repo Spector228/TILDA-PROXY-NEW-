@@ -14,9 +14,9 @@ app.get('/', (req, res) => {
     res.send(`
         <div style="font-family: sans-serif; text-align:center; padding: 100px 20px; background: #020617; min-height: 100vh; color: white;">
             <div style="background: #0f172a; display: inline-block; padding: 50px; border: 1px solid #1e293b; border-radius: 40px; box-shadow: 0 25px 50px -12px rgba(249, 115, 22, 0.2);">
-                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px; font-weight: 900;">STORM GHOST V33.9</h1>
-                <p style="color:#22c55e; font-size: 18px; font-weight: bold; letter-spacing: 2px;">PURE GHOST MODE ACTIVE</p>
-                <div style="margin-top: 30px; color: #64748b; font-size: 12px; font-family: monospace;">NO TOKEN REQUIRED • DOM INJECTION</div>
+                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px; font-weight: 900;">STORM GHOST V40</h1>
+                <p style="color:#22c55e; font-size: 18px; font-weight: bold; letter-spacing: 2px;">UTF-8 BYPASS ACTIVE</p>
+                <div style="margin-top: 30px; color: #64748b; font-size: 12px; font-family: monospace;">STABLE ENCODING • FIXED GRID</div>
             </div>
         </div>
     `);
@@ -56,64 +56,61 @@ app.post('/tilda', async (req, res) => {
             const recId = $(block).attr('id');
             if (blockIds && !blockIds.includes(recId)) return;
             
+            const artboard = $(block).find('.t396__artboard');
+            if (!artboard.length) return;
+
             const blockData = {
                 recordid: recId,
-                artboard: $(block).find('.t396__artboard')[0]?.outerHTML || '',
-                elements: {}
+                html: artboard[0].outerHTML,
+                elements: []
             };
             
             $(block).find('.tn-elem').each((j, elem) => {
-                const elemId = $(elem).attr('data-elem-id');
-                blockData.elements[elemId] = {
-                    id: elemId,
+                blockData.elements.push({
+                    id: $(elem).attr('data-elem-id'),
                     top: $(elem).attr('data-field-top-value') || '0',
                     left: $(elem).attr('data-field-left-value') || '0'
-                };
+                });
             });
             blocks.push(blockData);
         });
 
-        // Формируем чистый Ghost-инъектор (БЕЗ использования Tilda API)
         const ghostCode = `
 (()=>{
     console.clear();
-    console.log('%c🚀 STORM GHOST: Копирование ${blocks.length} блоков...', 'color:#fff;background:#fa8669;font-size:large;padding:8px;border-radius:4px;');
+    console.log('%c🚀 STORM GHOST: Копирование ${blocks.length} блоков...', 'color:#fff;background:#fa8669;font-size:large;padding:10px;font-weight:bold;');
     
     const container = document.querySelector('#allrecords') || document.body;
-    const blocksData = ${JSON.stringify(blocks)};
+    const blocks = ${JSON.stringify(blocks)};
     
-    blocksData.forEach((block, index) => {
+    blocks.forEach((block, i) => {
         const div = document.createElement('div');
         div.className = 'r t-rec';
-        div.style.position = 'relative';
+        div.id = 'rec' + Math.floor(Math.random() * 1000000);
         div.dataset.recordType = '396';
-        div.id = 'rec-ghost-' + Date.now() + index;
-        div.innerHTML = block.artboard;
+        div.innerHTML = block.html;
         
-        // Корректировка позиционирования элементов внутри блока
-        Object.keys(block.elements).forEach(id => {
-            const el = div.querySelector('[data-elem-id="' + id + '"]');
-            if(el) {
-                const data = block.elements[id];
-                el.style.top = data.top + 'px';
-                el.style.left = 'calc(50% - 600px + ' + data.left + 'px)';
+        block.elements.forEach(elData => {
+            const el = div.querySelector('[data-elem-id="' + elData.id + '"]');
+            if (el) {
+                el.style.top = elData.top + 'px';
+                el.style.left = 'calc(50% - 600px + ' + elData.left + 'px)';
+                el.style.position = 'absolute';
             }
         });
         
         container.appendChild(div);
-        
-        // Инициализация Zero Block если мы в среде Tilda
-        const pureId = div.id.replace('rec', '');
-        if(window.t396_init) {
-            try { window.t396_init(pureId); } catch(e) { console.warn("Init fail for " + pureId); }
+        if (window.t396_init) {
+            try { window.t396_init(div.id.replace('rec', '')); } catch(e) {}
         }
     });
     
-    console.log('%c✅ GHOST IMPORT COMPLETE! Блоки добавлены в DOM.', 'color:#fff;background:#22c55e;font-size:large;padding:8px;border-radius:4px;');
-    alert("STORM GHOST: " + blocksData.length + " блоков успешно внедрены напрямую в страницу!");
+    console.log('%c✅ ИМПОРТ ЗАВЕРШЕН! Блоки добавлены.', 'color:#fff;background:#22c55e;font-size:large;padding:10px;');
+    alert("STORM GHOST: " + blocks.length + " блоков успешно внедрены!");
 })();`.trim();
 
-        const src = Buffer.from(unescape(encodeURIComponent(ghostCode))).toString('base64');
+        // Важно: Просто Buffer.from(str) использует UTF-8 по умолчанию
+        const src = Buffer.from(ghostCode).toString('base64');
         res.json({ src });
     } catch (err) {
         res.status(500).json({ error: err.message });
