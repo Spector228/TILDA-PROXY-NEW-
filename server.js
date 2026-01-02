@@ -13,9 +13,10 @@ app.get('/', (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(`
         <div style="font-family: sans-serif; text-align:center; padding: 100px 20px; background: #020617; min-height: 100vh; color: white;">
-            <div style="background: #0f172a; display: inline-block; padding: 50px; border: 1px solid #1e293b; border-radius: 40px;">
-                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px;">STORM GHOST V33.5</h1>
-                <p style="color:#94a3b8; font-size: 18px;">STATUS: <span style="color: #22c55e;">READY FOR INJECTION</span></p>
+            <div style="background: #0f172a; display: inline-block; padding: 50px; border: 1px solid #1e293b; border-radius: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px; font-weight: 900; italic">STORM GHOST V33.6</h1>
+                <p style="color:#22c55e; font-size: 18px; font-weight: bold; letter-spacing: 2px;">PROTOCOL: PARITY ACTIVATED</p>
+                <div style="margin-top: 30px; color: #64748b; font-size: 12px; font-family: monospace;">READY TO BYPASS MIRRORS (.KZ / .CC / .WS)</div>
             </div>
         </div>
     `);
@@ -80,46 +81,57 @@ app.post('/tilda', async (req, res) => {
 (async function() {
     const designs = ${JSON.stringify(designs)};
     
-    const getParam = (name) => {
-        // Проверяем текущее окно, родительское окно (если мы во фрейме) и скрытые инпуты
-        const win = window;
-        const parent = window.parent;
+    const findPageId = () => {
+        const search = window.location.search + (window.parent ? window.parent.location.search : "");
+        const match = search.match(/[?&]pageid=(\\d+)/);
+        if (match) return match[1];
         
-        if (name === 'pageid') {
-            const fromUrl = new URLSearchParams(win.location.search).get('pageid') || new URLSearchParams(parent.location.search).get('pageid');
-            if (fromUrl) return fromUrl;
-            return win.pageid || parent.pageid || win.td_pageid || parent.td_pageid;
-        }
-        
-        if (name === 'token') {
-            const fromVar = win.token || parent.token || win.td_token || parent.td_token;
-            if (fromVar) return fromVar;
-            
-            const fromInput = win.document.querySelector('input[name="token"]') || 
-                              parent.document.querySelector('input[name="token"]') ||
-                              win.document.querySelector('#token');
-            if (fromInput) return fromInput.value;
+        return window.pageid || window.parent?.pageid || 
+               document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id') ||
+               window.parent?.document?.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
+    };
 
-            const fromAllRecs = win.document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey') || 
-                                parent.document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
-            return fromAllRecs;
-        }
+    const findToken = () => {
+        // 1. Пробуем глобальные переменные
+        let t = window.token || window.parent?.token || window.td_token || window.parent?.td_token || window.formstoken || window.parent?.formstoken;
+        if (t && t !== 'missing') return t;
+
+        // 2. Ищем во всех инпутах (текущее окно и родительское)
+        const findInInputs = (doc) => {
+            if (!doc) return null;
+            const inputs = doc.querySelectorAll('input[type="hidden"], input[name="token"]');
+            for (let i of inputs) {
+                if ((i.name === 'token' || i.id === 'token' || i.name === 'formstoken') && i.value) return i.value;
+            }
+            return null;
+        };
+        
+        t = findInInputs(document) || findInInputs(window.parent?.document);
+        if (t) return t;
+
+        // 3. Из атрибутов контейнеров
+        const formsKey = document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey') || 
+                         window.parent?.document?.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
+        if (formsKey) return formsKey;
+
         return null;
     };
 
-    const pId = getParam('pageid');
-    const tok = getParam('token');
+    const pId = findPageId();
+    const tok = findToken();
 
     if (!pId || !tok) {
-        console.error("STORM GHOST Error: Missing PageID or Token");
-        alert("ОШИБКА: Не удалось захватить сессию Tilda. Перейдите на главную страницу редактора (список блоков) и попробуйте снова.");
+        console.error("STORM GHOST Error: PageID=" + pId + ", Token=" + tok);
+        alert("ОШИБКА: Скрипт не видит данные сессии Tilda. Пожалуйста, откройте консоль именно на главной странице редактирования (где список всех блоков), а не внутри Zero Block.");
         return;
     }
 
-    console.log("%c STORM GHOST %c Запуск клонирования блоков...", "color:#fff;background:#000;", "color:#fff;background:#fa8669;");
+    console.log("%c STORM GHOST %c Найдено блоков: " + designs.length + " | Страница: " + pId, "color:#fff;background:#000;padding:4px;", "color:#fff;background:#fa8669;padding:4px;");
 
-    for (const data of designs) {
+    for (let i = 0; i < designs.length; i++) {
+        const data = designs[i];
         try {
+            console.log("Клонирование блока " + (i + 1) + "...");
             const res = await fetch('/page/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
@@ -135,18 +147,17 @@ app.post('/tilda', async (req, res) => {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                     body: new URLSearchParams({ comm: 'save', pageid: pId, recordid: res.recordid, token: tok, data: JSON.stringify(data) })
                 });
-                console.log("Block " + res.recordid + " copied.");
             }
         } catch (e) {
-            console.error(e);
+            console.error("Ошибка клонирования:", e);
         }
     }
     
-    console.log("Success! Reloading...");
+    console.log("%c SUCCESS %c Все блоки скопированы. Перезагрузка...", "background:green;color:white", "");
     setTimeout(() => {
-        if (window.parent !== window) window.parent.location.reload();
+        if (window.parent && window.parent !== window) window.parent.location.reload();
         else window.location.reload();
-    }, 1000);
+    }, 1200);
 })();`.trim();
 
         const src = Buffer.from(injectScript, 'utf-8').toString('base64');
