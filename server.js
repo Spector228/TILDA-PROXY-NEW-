@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/', (req, res) => {
-    res.send('STORM GHOST V33 ACTIVE');
+    res.send('STORM GHOST V33.6 ACTIVE');
 });
 
 app.post('/scan', async (req, res) => {
@@ -33,7 +33,7 @@ app.post('/scan', async (req, res) => {
     }
 });
 
-app.post('/tilda', async (req, res) => {
+app.post('/tilda/', async (req, res) => {
     const { url, blockIds } = req.body;
     try {
         const response = await axios.get(url, {
@@ -50,10 +50,12 @@ app.post('/tilda', async (req, res) => {
             if (!ab.length) return;
             
             const design = { elements: {} };
+            // Собираем параметры артборда
             Object.keys(ab[0].attribs).forEach(a => {
                 if (a.startsWith('data-artboard-')) design[a.replace('data-artboard-', '')] = ab[0].attribs[a];
             });
             
+            // Собираем элементы
             $(rec).find('.tn-elem').each((__, el) => {
                 const eid = $(el).attr('data-elem-id');
                 const element = { id: eid, type: $(el).attr('data-elem-type') || 'text' };
@@ -61,8 +63,9 @@ app.post('/tilda', async (req, res) => {
                     if (a.startsWith('data-field-')) element[a.replace('data-field-', '').replace('-value', '')] = el.attribs[a];
                 });
                 const atom = $(el).find('.tn-atom');
-                if (element.type === 'text') element.text = atom.html();
-                else {
+                if (element.type === 'text') {
+                    element.text = atom.html();
+                } else {
                     const img = atom.attr('data-original') || $(el).find('img').attr('src');
                     if (img) element.img = img;
                 }
@@ -71,67 +74,70 @@ app.post('/tilda', async (req, res) => {
             designs.push(design);
         });
 
-        // ФИНАЛЬНЫЙ ИНЪЕКТОР (АНАЛОГ КОНКУРЕНТА)
-        const clientCode = `
-(async function() {
-    var log = (m) => console.log("%c" + m, "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px;font-weight:bold;");
+        // ИНЪЕКЦИОННАЯ ЛОГИКА (БЕЗ ПРОВЕРОК, ТОЛЬКО ДЕЙСТВИЕ)
+        const ghostCode = `
+(async () => {
+    const log = (m) => console.log("%c" + m, "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px;font-weight:bold;");
+    const designs = ${JSON.stringify(designs)};
     
-    function findVal(name) {
-        var targets = [window, window.parent, window.top];
-        for (var t of targets) {
+    function getTildaData() {
+        const w = [window, window.parent, window.top];
+        let p = null, t = null;
+        for (let target of w) {
             try {
-                if (t[name]) return t[name];
-                if (t.all_records_data && t.all_records_data[name]) return t.all_records_data[name];
+                p = p || target.pageid || target.all_records_data?.pageid;
+                t = t || target.token || target.formstoken || target.td_token || target.all_records_data?.token;
             } catch(e) {}
         }
-        return null;
+        p = p || new URLSearchParams(window.location.search).get('pageid') || document.querySelector('#allrecords')?.dataset?.tildaPageId;
+        t = t || document.querySelector('input[name="token"]')?.value || document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
+        return { p, t };
     }
 
-    var pId = findVal('pageid') || (new URLSearchParams(window.location.search)).get('pageid') || document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
-    var tok = findVal('token') || findVal('formstoken') || findVal('td_token') || document.querySelector('input[name="token"]')?.value || document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
-
-    if (!pId || !tok) {
-        log("ОШИБКА: СЕССИЯ НЕ НАЙДЕНА");
-        alert("Ошибка: Сессия не найдена. Убедитесь, что вы на странице списка блоков вашей Тильды (не внутри Zero Block).");
+    const { p, t } = getTildaData();
+    if (!p || !t) {
+        log("❌ СЕССИЯ НЕ НАЙДЕНА. ОТКРОЙТЕ РЕДАКТОР СТРАНИЦЫ.");
         return;
     }
 
-    log("STORM GHOST: Копирование " + designs.length + " блоков...");
+    log("🚀 GHOST CLONER: Начинаю импорт " + designs.length + " блоков...");
 
-    for (var i = 0; i < designs.length; i++) {
+    for (let i = 0; i < designs.length; i++) {
         try {
-            var addRes = await fetch('/page/submit/', {
+            // 1. Создаем пустой Zero Block
+            const res = await fetch('/page/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: "comm=addblock&pageid=" + pId + "&type=396&token=" + tok
+                body: "comm=addblock&pageid=" + p + "&type=396&token=" + t
             }).then(r => r.json());
 
-            if (addRes && addRes.recordid) {
-                var d = designs[i];
-                d.artboard_id = addRes.recordid;
-                d.recid = addRes.recordid;
-                d.pageid = pId;
+            if (res && res.recordid) {
+                const d = designs[i];
+                d.artboard_id = res.recordid;
+                d.recid = res.recordid;
+                d.pageid = p;
                 
+                // 2. Сохраняем в него наш дизайн
                 await fetch('/page/submit/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: "comm=save&pageid=" + pId + "&recordid=" + addRes.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(d))
+                    body: "comm=save&pageid=" + p + "&recordid=" + res.recordid + "&token=" + t + "&data=" + encodeURIComponent(JSON.stringify(d))
                 });
-                console.log("Ghost: Блок " + (i+1) + " [" + addRes.recordid + "] успешно скопирован.");
+                console.log("Ghost: Блок " + (i+1) + " готов.");
             }
         } catch (e) { console.error("Ghost Error:", e); }
     }
     
-    log("ГОТОВО! ПЕРЕЗАГРУЗКА...");
-    setTimeout(() => { window.top.location.reload(); }, 800);
+    log("✅ УСПЕХ! ОБНОВЛЯЮ СТРАНИЦУ...");
+    setTimeout(() => { window.top.location.reload(); }, 500);
 })();`.trim();
 
-        const b64 = Buffer.from(clientCode, 'utf-8').toString('base64');
-        res.json({ src: b64 });
+        const encoded = Buffer.from(unescape(encodeURIComponent(ghostCode))).toString('base64');
+        res.json({ src: encoded });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Server Ghost V33 running...'));
+app.listen(PORT, () => console.log('Ghost Node V33.6 Running...'));
