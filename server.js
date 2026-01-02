@@ -71,57 +71,73 @@ app.post('/tilda', async (req, res) => {
             designs.push(design);
         });
 
-        // ИНЪЕКТОР (То, что выполняется в консоли)
-        // Мы ищем токен везде: и в текущем окне, и в родителе
+        // ФИНАЛЬНЫЙ ИНЪЕКТОР (БЕЗОШИБОЧНЫЙ ПОИСК)
         const clientCode = `
 (async function() {
     var designs = ${JSON.stringify(designs)};
     
-    function getVal(name) {
-        if (window[name]) return window[name];
-        if (window.parent && window.parent[name]) return window.parent[name];
-        if (window.td_token) return window.td_token;
-        if (window.parent && window.parent.td_token) return window.parent.td_token;
-        return null;
+    function getSession() {
+        var p = null, t = null;
+        var wins = [window, window.parent, window.top];
+        
+        for (var w of wins) {
+            try {
+                p = p || w.pageid || (w.all_records_data ? w.all_records_data.pageid : null);
+                t = t || w.token || w.formstoken || w.td_token || (w.all_records_data ? w.all_records_data.token : null);
+            } catch(e) {}
+        }
+        
+        if (!p) {
+            var urlP = new URLSearchParams(window.location.search).get('pageid') || new URLSearchParams(window.top.location.search).get('pageid');
+            p = urlP;
+        }
+        
+        if (!t) {
+            t = document.querySelector('input[name="token"]')?.value || document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
+        }
+        
+        return { pageid: p, token: t };
     }
 
-    var pId = getVal('pageid') || (new URLSearchParams(window.location.search)).get('pageid') || (window.parent ? (new URLSearchParams(window.parent.location.search)).get('pageid') : null);
-    var tok = getVal('formstoken') || getVal('token') || document.querySelector('input[name="token"]')?.value;
+    var sess = getSession();
+    var log = (m) => console.log("%c" + m, "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px;font-family:sans-serif;font-weight:bold;");
 
-    if (!pId || !tok) {
-        alert("Ошибка: Сессия не найдена. Пожалуйста, закройте Zero Block и запустите код на странице со списком всех блоков.");
+    if (!sess.pageid || !sess.token) {
+        log("КРИТИЧЕСКАЯ ОШИБКА: ДАННЫЕ TILDA НЕ НАЙДЕНЫ");
+        alert("Ошибка: Сессия не найдена. Убедитесь, что вы находитесь на странице редактирования (список блоков) и попробуйте еще раз.");
         return;
     }
 
-    console.log("%cSTORM GHOST%c Начинаю копирование " + designs.length + " блоков...", "color:#fff;background:#fa8669;padding:3px 10px;border-radius:5px", "");
+    log("STORM GHOST: Начинаю импорт " + designs.length + " блоков...");
 
     for (var i = 0; i < designs.length; i++) {
         var d = designs[i];
         try {
+            var body = "comm=addblock&pageid=" + sess.pageid + "&type=396&token=" + sess.token;
             var res = await fetch('/page/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: "comm=addblock&pageid=" + pId + "&type=396&token=" + tok
+                body: body
             }).then(r => r.json());
 
             if (res && res.recordid) {
                 d.artboard_id = res.recordid;
                 d.recid = res.recordid;
-                d.pageid = pId;
+                d.pageid = sess.pageid;
                 
+                var saveBody = "comm=save&pageid=" + sess.pageid + "&recordid=" + res.recordid + "&token=" + sess.token + "&data=" + encodeURIComponent(JSON.stringify(d));
                 await fetch('/page/submit/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: "comm=save&pageid=" + pId + "&recordid=" + res.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(d))
+                    body: saveBody
                 });
-                console.log("Блок " + (i+1) + " из " + designs.length + " добавлен успешно.");
+                console.log("Ghost: [" + (i+1) + "/" + designs.length + "] Блок " + res.recordid + " готов.");
             }
-        } catch (e) { console.error("Ошибка при копировании блока:", e); }
+        } catch (e) { console.error("Ошибка Ghost:", e); }
     }
     
-    alert("Готово! Все блоки скопированы. Страница будет обновлена.");
-    if (window.parent && window.parent.location) window.parent.location.reload();
-    else window.location.reload();
+    log("ИМПОРТ ЗАВЕРШЕН!");
+    setTimeout(() => { window.top.location.reload(); }, 500);
 })();`.trim();
 
         const b64 = Buffer.from(clientCode, 'utf-8').toString('base64');
@@ -132,4 +148,4 @@ app.post('/tilda', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Server running...'));
+app.listen(PORT, () => console.log('Server running on port ' + PORT));
