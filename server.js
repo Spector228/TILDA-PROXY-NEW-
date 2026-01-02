@@ -13,14 +13,9 @@ app.get('/', (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(`
         <div style="font-family: sans-serif; text-align:center; padding: 100px 20px; background: #020617; min-height: 100vh; color: white;">
-            <div style="background: #0f172a; display: inline-block; padding: 50px; border: 1px solid #1e293b; border-radius: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
-                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px; letter-spacing: -2px; font-style: italic; font-weight: 900;">STORM GHOST V33</h1>
-                <p style="color:#94a3b8; font-size: 18px; font-weight: bold; letter-spacing: 2px;">STATUS: <span style="color: #22c55e;">ONLINE</span></p>
-                <div style="margin-top: 40px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 20px; text-align: left; font-family: monospace; font-size: 13px; color: #64748b;">
-                   [OK] POST /scan is active<br>
-                   [OK] POST /tilda is active<br>
-                   [OK] Universal Domain Support (KZ/CC/WS)
-                </div>
+            <div style="background: #0f172a; display: inline-block; padding: 50px; border: 1px solid #1e293b; border-radius: 40px;">
+                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px;">STORM GHOST V33.5</h1>
+                <p style="color:#94a3b8; font-size: 18px;">STATUS: <span style="color: #22c55e;">READY FOR INJECTION</span></p>
             </div>
         </div>
     `);
@@ -85,32 +80,45 @@ app.post('/tilda', async (req, res) => {
 (async function() {
     const designs = ${JSON.stringify(designs)};
     
-    // Продвинутый поиск параметров
-    const findPageId = () => {
-        const fromURL = new URLSearchParams(window.location.search).get('pageid');
-        return fromURL || window.pageid || document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
+    const getParam = (name) => {
+        // Проверяем текущее окно, родительское окно (если мы во фрейме) и скрытые инпуты
+        const win = window;
+        const parent = window.parent;
+        
+        if (name === 'pageid') {
+            const fromUrl = new URLSearchParams(win.location.search).get('pageid') || new URLSearchParams(parent.location.search).get('pageid');
+            if (fromUrl) return fromUrl;
+            return win.pageid || parent.pageid || win.td_pageid || parent.td_pageid;
+        }
+        
+        if (name === 'token') {
+            const fromVar = win.token || parent.token || win.td_token || parent.td_token;
+            if (fromVar) return fromVar;
+            
+            const fromInput = win.document.querySelector('input[name="token"]') || 
+                              parent.document.querySelector('input[name="token"]') ||
+                              win.document.querySelector('#token');
+            if (fromInput) return fromInput.value;
+
+            const fromAllRecs = win.document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey') || 
+                                parent.document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
+            return fromAllRecs;
+        }
+        return null;
     };
 
-    const findToken = () => {
-        return window.token || 
-               document.querySelector('input[name="token"]')?.value || 
-               document.querySelector('input#token')?.value ||
-               window.td_token;
-    };
-
-    const pId = findPageId();
-    const tok = findToken();
+    const pId = getParam('pageid');
+    const tok = getParam('token');
 
     if (!pId || !tok) {
-        console.log("%c ERROR %c Не удалось найти pageid ("+pId+") или token ("+(tok?'found':'missing')+")", "color:#fff;background:red;", "");
-        alert("ОШИБКА: Скрипт не видит данные страницы. Убедитесь, что вы находитесь в редакторе (админке) Tilda.");
+        console.error("STORM GHOST Error: Missing PageID or Token");
+        alert("ОШИБКА: Не удалось захватить сессию Tilda. Перейдите на главную страницу редактора (список блоков) и попробуйте снова.");
         return;
     }
 
-    console.log("%c STORM GHOST V33 %c Импорт " + designs.length + " блоков на страницу " + pId, "color:#fff;background:#000;padding:5px;font-weight:bold;", "color:#fff;background:#fa8669;padding:5px;");
+    console.log("%c STORM GHOST %c Запуск клонирования блоков...", "color:#fff;background:#000;", "color:#fff;background:#fa8669;");
 
     for (const data of designs) {
-        console.log("%c FETCH %c Создание блока...", "color:#fff;background:#64748b;padding:2px;", "");
         try {
             const res = await fetch('/page/submit/', {
                 method: 'POST',
@@ -127,15 +135,18 @@ app.post('/tilda', async (req, res) => {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                     body: new URLSearchParams({ comm: 'save', pageid: pId, recordid: res.recordid, token: tok, data: JSON.stringify(data) })
                 });
-                console.log("%c DONE %c Блок " + res.recordid + " успешно скопирован", "color:#fff;background:#22c55e;padding:2px;", "");
+                console.log("Block " + res.recordid + " copied.");
             }
         } catch (e) {
-            console.error("Ошибка при копировании блока:", e);
+            console.error(e);
         }
     }
     
-    console.log("%c FINISHED %c Все блоки добавлены. Обновляю страницу...", "color:#fff;background:#fa8669;padding:5px;", "");
-    setTimeout(() => window.location.reload(), 1500);
+    console.log("Success! Reloading...");
+    setTimeout(() => {
+        if (window.parent !== window) window.parent.location.reload();
+        else window.location.reload();
+    }, 1000);
 })();`.trim();
 
         const src = Buffer.from(injectScript, 'utf-8').toString('base64');
