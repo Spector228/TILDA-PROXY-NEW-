@@ -10,36 +10,26 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(`
-        <div style="font-family: sans-serif; text-align:center; padding: 100px 20px; background: #020617; min-height: 100vh; color: white;">
-            <div style="background: #0f172a; display: inline-block; padding: 50px; border: 1px solid #1e293b; border-radius: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
-                <h1 style="color:#fa8669; font-size: 48px; margin-bottom: 10px; font-weight: 900; italic">STORM GHOST V33.6</h1>
-                <p style="color:#22c55e; font-size: 18px; font-weight: bold; letter-spacing: 2px;">PROTOCOL: PARITY ACTIVATED</p>
-                <div style="margin-top: 30px; color: #64748b; font-size: 12px; font-family: monospace;">READY TO BYPASS MIRRORS (.KZ / .CC / .WS)</div>
-            </div>
-        </div>
-    `);
+    res.send('STORM GHOST SERVER ACTIVE');
 });
 
 app.post('/scan', async (req, res) => {
     const { url } = req.body;
-    if (!url) return res.status(400).json({ error: 'URL is required' });
     try {
         const response = await axios.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+            headers: { 'User-Agent': 'Mozilla/5.0' },
             timeout: 10000
         });
         const $ = cheerio.load(response.data);
         const blocks = [];
         $('.r[data-record-type="396"]').each((_, rec) => {
             const id = $(rec).attr('id');
-            const preview = $(rec).find('.tn-atom').first().text().trim().substring(0, 60) || "Zero Block Content";
+            const preview = $(rec).find('.tn-atom').first().text().trim().substring(0, 50) || "Zero Block";
             blocks.push({ id, description: preview, type: '396' });
         });
-        res.json({ success: true, blocks, total: blocks.length });
+        res.json({ success: true, blocks });
     } catch (err) {
-        res.status(500).json({ error: 'Proxy Error: ' + err.message });
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -47,19 +37,23 @@ app.post('/tilda', async (req, res) => {
     const { url, blockIds } = req.body;
     try {
         const response = await axios.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+            headers: { 'User-Agent': 'Mozilla/5.0' }
         });
         const $ = cheerio.load(response.data);
         const designs = [];
+        
         $('.r[data-record-type="396"]').each((_, rec) => {
             const id = $(rec).attr('id');
             if (blockIds && !blockIds.includes(id)) return;
+            
             const ab = $(rec).find('.t396__artboard');
             if (!ab.length) return;
+            
             const design = { elements: {} };
             Object.keys(ab[0].attribs).forEach(a => {
                 if (a.startsWith('data-artboard-')) design[a.replace('data-artboard-', '')] = ab[0].attribs[a];
             });
+            
             $(rec).find('.tn-elem').each((__, el) => {
                 const eid = $(el).attr('data-elem-id');
                 const element = { id: eid, type: $(el).attr('data-elem-type') || 'text' };
@@ -77,87 +71,49 @@ app.post('/tilda', async (req, res) => {
             designs.push(design);
         });
 
+        // ПРЯМАЯ ЛОГИКА КОНКУРЕНТА (без лишних проверок)
         const injectScript = `
 (async function() {
-    const designs = ${JSON.stringify(designs)};
+    var ds = ${JSON.stringify(designs)};
+    var win = window.parent !== window ? window.parent : window;
     
-    const findPageId = () => {
-        const search = window.location.search + (window.parent ? window.parent.location.search : "");
-        const match = search.match(/[?&]pageid=(\\d+)/);
-        if (match) return match[1];
-        
-        return window.pageid || window.parent?.pageid || 
-               document.querySelector('#allrecords')?.getAttribute('data-tilda-page-id') ||
-               window.parent?.document?.querySelector('#allrecords')?.getAttribute('data-tilda-page-id');
-    };
-
-    const findToken = () => {
-        // 1. Пробуем глобальные переменные
-        let t = window.token || window.parent?.token || window.td_token || window.parent?.td_token || window.formstoken || window.parent?.formstoken;
-        if (t && t !== 'missing') return t;
-
-        // 2. Ищем во всех инпутах (текущее окно и родительское)
-        const findInInputs = (doc) => {
-            if (!doc) return null;
-            const inputs = doc.querySelectorAll('input[type="hidden"], input[name="token"]');
-            for (let i of inputs) {
-                if ((i.name === 'token' || i.id === 'token' || i.name === 'formstoken') && i.value) return i.value;
-            }
-            return null;
-        };
-        
-        t = findInInputs(document) || findInInputs(window.parent?.document);
-        if (t) return t;
-
-        // 3. Из атрибутов контейнеров
-        const formsKey = document.querySelector('#allrecords')?.getAttribute('data-tilda-formskey') || 
-                         window.parent?.document?.querySelector('#allrecords')?.getAttribute('data-tilda-formskey');
-        if (formsKey) return formsKey;
-
-        return null;
-    };
-
-    const pId = findPageId();
-    const tok = findToken();
+    // Получаем токены и ID как это делает конкурент
+    var pId = win.pageid || win.td_pageid || (new URLSearchParams(win.location.search)).get('pageid');
+    var tok = win.token || win.td_token || win.document.querySelector('input[name="token"]')?.value;
 
     if (!pId || !tok) {
-        console.error("STORM GHOST Error: PageID=" + pId + ", Token=" + tok);
-        alert("ОШИБКА: Скрипт не видит данные сессии Tilda. Пожалуйста, откройте консоль именно на главной странице редактирования (где список всех блоков), а не внутри Zero Block.");
+        alert("Ошибка: Не найден token или pageid. Откройте консоль в общем списке блоков страницы.");
         return;
     }
 
-    console.log("%c STORM GHOST %c Найдено блоков: " + designs.length + " | Страница: " + pId, "color:#fff;background:#000;padding:4px;", "color:#fff;background:#fa8669;padding:4px;");
+    console.log("%cSTORM GHOST%c Начинаю копирование " + ds.length + " блоков...", "background:#fa8669;color:#fff;padding:5px;", "");
 
-    for (let i = 0; i < designs.length; i++) {
-        const data = designs[i];
+    for (var i = 0; i < ds.length; i++) {
+        var data = ds[i];
         try {
-            console.log("Клонирование блока " + (i + 1) + "...");
-            const res = await fetch('/page/submit/', {
+            var res = await fetch('/page/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: new URLSearchParams({ comm: 'addblock', pageid: pId, type: '396', token: tok })
+                body: "comm=addblock&pageid=" + pId + "&type=396&token=" + tok
             }).then(r => r.json());
 
             if (res && res.recordid) {
                 data.artboard_id = res.recordid;
                 data.recid = res.recordid;
                 data.pageid = pId;
+                
                 await fetch('/page/submit/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: new URLSearchParams({ comm: 'save', pageid: pId, recordid: res.recordid, token: tok, data: JSON.stringify(data) })
+                    body: "comm=save&pageid=" + pId + "&recordid=" + res.recordid + "&token=" + tok + "&data=" + encodeURIComponent(JSON.stringify(data))
                 });
+                console.log("Блок " + (i+1) + " из " + ds.length + " готов.");
             }
-        } catch (e) {
-            console.error("Ошибка клонирования:", e);
-        }
+        } catch (e) { console.error(e); }
     }
     
-    console.log("%c SUCCESS %c Все блоки скопированы. Перезагрузка...", "background:green;color:white", "");
-    setTimeout(() => {
-        if (window.parent && window.parent !== window) window.parent.location.reload();
-        else window.location.reload();
-    }, 1200);
+    alert("Готово! Страница будет перезагружена.");
+    win.location.reload();
 })();`.trim();
 
         const src = Buffer.from(injectScript, 'utf-8').toString('base64');
@@ -168,4 +124,4 @@ app.post('/tilda', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Ghost Server running on ${PORT}`));
+app.listen(PORT, () => console.log(`Ghost Node on ${PORT}`));
